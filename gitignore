@@ -1,0 +1,36 @@
+# ---- Secrets: never commit these ----
+local.settings.json
+*.publishsettings
+*.pubxml
+.env
+.env.*
+!.env.example
+
+# Real config blobs contain internal infrastructure detail — keep only samples
+config/internal-assets.json
+config/portal-config.json
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.python_packages/
+test-results.xml
+
+# ---- Node ----
+node_modules/
+npm-debug.log*
+
+# ---- Build output ----
+*.zip
+dist/
+build/
+
+# ---- Editors / OS ----
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

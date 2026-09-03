@@ -1,0 +1,262 @@
+# Reusable deployment job — Dev and Prod deploy by identical steps.
+#
+# Deployment targets arrive as PARAMETERS, not variable groups. That is
+# deliberate: Azure DevOps resolves variable groups when it validates the
+# pipeline, not when a stage runs, so a stage referencing a group that does not
+# exist yet fails the whole pipeline — including stages that are configured
+# correctly. Parameters are resolved per-stage, so the Prod stage can sit in
+# this file long before the Prod resources or service connection exist.
+#
+# The approval gate lives on the ENVIRONMENT in the Azure DevOps UI, not here.
+# Deployment jobs bind to an environment, so ADO pauses the job until the
+# configured approvers sign off.
+
+parameters:
+  - name: environmentName
+    type: string
+  - name: agentPool
+    type: string
+  - name: serviceConnection
+    type: string
+  - name: resourceGroup
+    type: string
+  - name: functionAppName
+    type: string
+  - name: webAppName
+    type: string
+  # --- deploy-time network access toggle (see the guide referenced at the
+  # bottom of this file for the full design rationale and recommended
+  # alternative) ---
+  # When true: the pipeline temporarily allowlists its own runtime IP on
+  # the Function App's and Web App's SCM (Kudu) endpoint access-restriction
+  # rules before deploying, and ALWAYS removes that rule afterward — even
+  # if the deploy itself fails — via a step with condition: always().
+  # Defaults to false: this has NO effect at all unless explicitly enabled,
+  # so it is safe to merge into every environment's pipeline run without
+  # requiring public access to already be configured a particular way.
+  - name: useTemporaryDeployAccess
+    type: boolean
+    default: false
+
+jobs:
+  - deployment: Deploy
+    displayName: Deploy to ${{ parameters.environmentName }}
+    environment: ${{ parameters.environmentName }}
+    pool:
+      ${{ if eq(parameters.agentPool, 'hosted') }}:
+        vmImage: ubuntu-24.04
+      ${{ else }}:
+        name: ${{ parameters.agentPool }}
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+            - download: current
+              artifact: functionapp
+              displayName: Download Function App artifact
+
+            - download: current
+              artifact: webapp
+              displayName: Download web artifact
+
+            # CORRECTED APPROACH — confirmed necessary by an actual failed
+            # deploy: when "Public network access" is set to Disabled on
+            # the Function App / Web App, access-restriction IP rules are
+            # NOT CONSULTED AT ALL — there is no public network path for
+            # them to gate, so narrowing an access-restriction rule (the
+            # earlier version of this step) has no effect. The setting
+            # that actually matters is publicNetworkAccess itself. This
+            # step flips that to Enabled, THEN layers a narrow
+            # access-restriction rule on top so the temporarily-public
+            # endpoint is still gated to only this pipeline run's IP, not
+            # the entire internet, for the short window it's open.
+            #
+            # `az functionapp config --public-network-access` was
+            # considered and rejected — it is the subject of an OPEN,
+            # UNRESOLVED Azure CLI feature request (Azure/azure-cli#24947)
+            # asking for it to be added; it does not reliably exist. The
+            # generic `--set publicNetworkAccess=...` form against the
+            # underlying resource is the confirmed-working method.
+            - ${{ if eq(parameters.useTemporaryDeployAccess, true) }}:
+              - task: AzureCLI@2
+                displayName: 'Temporarily enable public network access for deploy'
+                inputs:
+                  azureSubscription: ${{ parameters.serviceConnection }}
+                  scriptType: bash
+                  scriptLocation: inlineScript
+                  inlineScript: |
+                    set -euo pipefail
+                    AGENT_IP=$(curl -s https://api.ipify.org)
+                    if [ -z "$AGENT_IP" ]; then
+                      echo "##vso[task.logissue type=error]Could not determine agent's public IP — refusing to proceed with a network change based on an unknown source."
+                      exit 1
+                    fi
+                    echo "Agent IP: $AGENT_IP"
+
+                    RULE_NAME="pipeline-deploy-$(Build.BuildId)"
+                    echo "##vso[task.setvariable variable=DeployRuleName]$RULE_NAME"
+
+                    # Function App only — the Web App has no private
+                    # endpoint and already has public access enabled, so
+                    # none of this applies to it.
+                    echo "Enabling public network access (temporarily) on Function App..."
+                    az functionapp update \
+                      --resource-group "${{ parameters.resourceGroup }}" \
+                      --name "${{ parameters.functionAppName }}" \
+                      --set publicNetworkAccess="Enabled" \
+                      --only-show-errors
+
+                    # Now that a public path exists at all, narrow it to
+                    # just this pipeline's IP on the SCM endpoint — same
+                    # rationale as before, just correctly layered UNDER a
+                    # publicNetworkAccess that is actually Enabled.
+                    az functionapp config access-restriction set \
+                      --resource-group "${{ parameters.resourceGroup }}" \
+                      --name "${{ parameters.functionAppName }}" \
+                      --use-same-restrictions-for-scm-site false \
+                      --only-show-errors
+
+                    # KNOWN LIMITATION — confirmed via a live Azure CLI GitHub
+                    # issue (Azure/azure-cli #31414): `access-restriction add`
+                    # currently fails with a BadRequest on Function Apps using
+                    # the Flex Consumption SKU. If this step fails here,
+                    # confirm the current SKU before troubleshooting further.
+                    az functionapp config access-restriction add \
+                      --resource-group "${{ parameters.resourceGroup }}" \
+                      --name "${{ parameters.functionAppName }}" \
+                      --scm-site true \
+                      --rule-name "$RULE_NAME" \
+                      --priority 100 \
+                      --action Allow \
+                      --ip-address "${AGENT_IP}/32" \
+                      --only-show-errors
+
+                    echo "Public network access temporarily enabled; SCM access narrowed to $AGENT_IP under rule $RULE_NAME on the Function App."
+                    echo "Waiting for the network configuration change to propagate..."
+                    sleep 20
+
+            - task: AzureFunctionApp@2
+              displayName: Deploy Function App
+              inputs:
+                connectedServiceNameARM: ${{ parameters.serviceConnection }}
+                appType: functionAppLinux
+                appName: ${{ parameters.functionAppName }}
+                package: $(Pipeline.Workspace)/functionapp/functionapp.zip
+                runtimeStack: PYTHON|3.11
+                deploymentMethod: zipDeploy
+
+            - task: AzureWebApp@1
+              displayName: Deploy web app
+              inputs:
+                azureSubscription: ${{ parameters.serviceConnection }}
+                appType: webAppLinux
+                appName: ${{ parameters.webAppName }}
+                package: $(Pipeline.Workspace)/webapp/webapp.zip
+                runtimeStack: NODE|22-lts
+                deploymentMethod: zipDeploy
+
+            # A zip deploy reports success as soon as the package lands, even
+            # when the app then fails to load. Every "no functions visible"
+            # incident on this project looked like a successful deploy. This
+            # step is what turns that into a failed pipeline run instead.
+            - task: AzureCLI@2
+              displayName: Verify Function App loaded its routes
+              inputs:
+                azureSubscription: ${{ parameters.serviceConnection }}
+                scriptType: bash
+                scriptLocation: inlineScript
+                inlineScript: |
+                  set -euo pipefail
+                  echo "Waiting for the worker to restart..."
+                  sleep 45
+                  FUNCS=$(az functionapp function list \
+                    --resource-group "${{ parameters.resourceGroup }}" \
+                    --name "${{ parameters.functionAppName }}" \
+                    --query "length(@)" -o tsv 2>/dev/null || echo "0")
+                  echo "Functions registered: $FUNCS"
+                  if [ "$FUNCS" -lt 1 ]; then
+                    echo "##vso[task.logissue type=error]No functions registered. The app failed to load — check Log stream for an import or syntax error."
+                    exit 1
+                  fi
+                  echo "Function App loaded $FUNCS function(s)."
+
+            - task: AzureCLI@2
+              displayName: Verify web app responds
+              inputs:
+                azureSubscription: ${{ parameters.serviceConnection }}
+                scriptType: bash
+                scriptLocation: inlineScript
+                inlineScript: |
+                  set -euo pipefail
+                  HOST=$(az webapp show \
+                    --resource-group "${{ parameters.resourceGroup }}" \
+                    --name "${{ parameters.webAppName }}" \
+                    --query defaultHostName -o tsv)
+                  echo "Checking https://$HOST"
+                  # Easy Auth redirects an unauthenticated request to the
+                  # Microsoft sign-in page, so 2xx/3xx/401/403 all prove the
+                  # app is up. Only 5xx or no response is a real failure.
+                  CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "https://$HOST" || echo "000")
+                  echo "HTTP $CODE"
+                  case "$CODE" in
+                    2*|3*|401|403) echo "Web app is responding." ;;
+                    *) echo "##vso[task.logissue type=error]Web app returned $CODE"; exit 1 ;;
+                  esac
+
+            # condition: always() is the actual guarantee here — this step
+            # runs regardless of whether ANY prior step in this job
+            # succeeded or failed, including a failed zip deploy or a
+            # failed verification step above. This is what satisfies
+            # "resources are returned to their original state even if
+            # deployment fails" — not step ordering, not a hope, an
+            # explicit pipeline-engine guarantee.
+            #
+            # Removal is idempotent (--only-show-errors suppresses a
+            # "rule not found" failure into a warning rather than an
+            # error) so this is also safe to have already run once, e.g.
+            # if a previous attempt's cleanup partially succeeded.
+            - ${{ if eq(parameters.useTemporaryDeployAccess, true) }}:
+              - task: AzureCLI@2
+                displayName: 'Restore private-only access (ALWAYS runs)'
+                condition: always()
+                inputs:
+                  azureSubscription: ${{ parameters.serviceConnection }}
+                  scriptType: bash
+                  scriptLocation: inlineScript
+                  inlineScript: |
+                    set +e   # deliberately not -e here — a failure here
+                             # must be loudly logged, not silently abort
+                             # the rest of this cleanup step; every command
+                             # below still needs to attempt to run even if
+                             # an earlier one in this same step failed
+                    RULE_NAME="pipeline-deploy-$(Build.BuildId)"
+                    echo "Removing temporary SCM access rule: $RULE_NAME"
+
+                    az functionapp config access-restriction remove \
+                      --resource-group "${{ parameters.resourceGroup }}" \
+                      --name "${{ parameters.functionAppName }}" \
+                      --scm-site true \
+                      --rule-name "$RULE_NAME" \
+                      --only-show-errors
+                    FUNC_RULE_RESULT=$?
+
+                    # THE STEP THAT ACTUALLY MATTERS — restoring
+                    # publicNetworkAccess to Disabled is what returns the
+                    # resource to its genuinely private state. Removing the
+                    # access-restriction rule above is secondary cleanup;
+                    # without this, the resource would remain reachable
+                    # from the public internet indefinitely even with no
+                    # access-restriction rule granting anyone specific in.
+                    echo "Restoring publicNetworkAccess to Disabled on Function App..."
+                    az functionapp update \
+                      --resource-group "${{ parameters.resourceGroup }}" \
+                      --name "${{ parameters.functionAppName }}" \
+                      --set publicNetworkAccess="Disabled" \
+                      --only-show-errors
+                    FUNC_PNA_RESULT=$?
+
+                    if [ $FUNC_RULE_RESULT -ne 0 ] || [ $FUNC_PNA_RESULT -ne 0 ]; then
+                      echo "##vso[task.logissue type=error]CLEANUP FAILED — ${{ parameters.functionAppName }} may still have public network access ENABLED. MANUAL INTERVENTION REQUIRED IMMEDIATELY: check publicNetworkAccess and access-restriction rules on it in the Azure Portal right now."
+                      exit 1
+                    fi
+                    echo "Public network access restored to Disabled and temporary rule $RULE_NAME removed from the Function App."

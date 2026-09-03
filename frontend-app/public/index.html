@@ -1,0 +1,1241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- Sets the theme attribute BEFORE any CSS renders, so the page never
+     paints in the wrong theme first. Must run this early — doing this in
+     the main script block at the bottom of the page is too late, since by
+     then the browser has already painted using the html{color-scheme:dark}
+     default in the stylesheet below. -->
+<script>
+(function(){
+  var t = localStorage.getItem("theme") || "light";
+  document.documentElement.dataset.theme = t;
+})();
+</script>
+<title>IOC Distribution Portal</title>
+<link rel="icon" type="image/png" sizes="32x32" href="/cyber-security.png">
+<!--<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23161E29' stroke='%232A3646' stroke-width='1.5'/><path d='M7 9h8m-8 7h6m-6 7h8' stroke='%234E8CFF' stroke-width='2.8' stroke-linecap='round' stroke-linejoin='round' fill='none'/><path d='M16 9h9l-9 14h9' stroke='%233FB27F' stroke-width='2.8' stroke-linecap='round' stroke-linejoin='round' fill='none'/></svg>">-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#10161F; --surface:#161E29; --raised:#1C2634; --border:#2A3646; --border-soft:#222E3D;
+  --text:#E8EDF4; --muted:#8B98A9; --faint:#5C6B7E;
+  --accent:#4E8CFF; --accent-dim:#2C4A80; --ok:#3FB27F; --warn:#F0A32E; --danger:#E5484D;
+  --mono:'IBM Plex Mono',ui-monospace,monospace; --sans:'IBM Plex Sans',system-ui,sans-serif;
+  --r:8px; --on-accent:#0B1220;
+}
+html[data-theme="light"]{color-scheme:light;--bg:#EFF2F6;--surface:#FFFFFF;--raised:#F5F7FA;--border:#D5DCE5;--border-soft:#E6EBF1;--text:#17202B;--muted:#5A6B80;--faint:#93A1B3;--accent:#2563EB;--accent-dim:#9DBEF7;--on-accent:#FFFFFF}
+*{box-sizing:border-box;margin:0;padding:0}
+html{color-scheme:dark}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px;line-height:1.5;min-height:100vh}
+button{font-family:inherit;cursor:pointer}
+input,select,textarea{font-family:inherit;color:var(--text)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+
+/* ---------- App bar ---------- */
+.appbar{display:flex;align-items:center;gap:16px;padding:0 24px;height:56px;background:var(--surface);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:40}
+.brand{display:flex;align-items:center;gap:10px;font-weight:600;letter-spacing:.02em}
+.brand .glyph{width:26px;height:26px;border-radius:6px;background:linear-gradient(135deg,var(--accent),var(--accent-dim));display:grid;place-items:center;color:var(--on-accent);font-family:var(--mono);font-weight:600;font-size:12px}
+.brand small{display:block;font-weight:400;color:var(--muted);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+.appbar .spacer{flex:1}
+.userbox{text-align:right;line-height:1.3}
+.userbox .name{font-weight:600;font-size:13px}
+.userbox .role{font-family:var(--mono);font-size:11px;color:var(--accent)}
+.themesel{width:auto;background:var(--raised);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;padding:5px 8px}
+.logoutbtn{background:none;border:1px solid var(--border);border-radius:6px;color:var(--muted);font-size:12px;padding:6px 12px;font-weight:600}
+.logoutbtn:hover{color:var(--text);border-color:#3A4A5E}
+
+/* ---------- Tabs ---------- */
+.tabs{display:flex;gap:4px;padding:0 24px;background:var(--surface);border-bottom:1px solid var(--border)}
+.tab{background:none;border:none;color:var(--muted);padding:12px 16px;font-size:13px;font-weight:500;border-bottom:2px solid transparent;display:flex;gap:8px;align-items:center}
+.tab:hover{color:var(--text)}
+.tab.active{color:var(--text);border-bottom-color:var(--accent)}
+.badge{background:var(--danger);color:#fff;font-size:10px;font-weight:600;border-radius:99px;padding:1px 6px;min-width:16px;text-align:center;font-family:var(--mono)}
+.badge.hidden{display:none}
+
+main{max-width:1120px;margin:0 auto;padding:24px 24px 80px}
+
+/* ---------- Stats tiles (visible on all tabs) ---------- */
+.statshead{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.statshead .t{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.statshead input[type=date]{width:auto;padding:5px 10px;font-size:12px;font-family:var(--mono)}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:22px}
+@media(max-width:720px){.stats{grid-template-columns:repeat(2,1fr)}}
+.tile{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px}
+.tile .k{display:block;font-family:var(--mono);font-size:24px;font-weight:600;line-height:1.2}
+.tile .k.ok{color:var(--ok)} .tile .k.danger{color:var(--danger)} .tile .k.accent{color:var(--accent)}
+.tile .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.panel{display:none}
+.panel.active{display:block}
+
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:20px}
+.card + .card{margin-top:16px}
+h2{font-size:15px;font-weight:600;margin-bottom:4px}
+.sub{color:var(--muted);font-size:12.5px;margin-bottom:18px}
+
+/* ---------- Form ---------- */
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.grid .full{grid-column:1/-1}
+@media(max-width:720px){.grid{grid-template-columns:1fr}}
+label{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:6px;letter-spacing:.03em;text-transform:uppercase}
+label .req{color:var(--danger)}
+label .opt{color:var(--faint);font-weight:400;text-transform:none;letter-spacing:0}
+select,input[type=text],input[type=date],textarea{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:9px 12px;font-size:13.5px}
+select:hover,input:hover,textarea:hover{border-color:#3A4A5E}
+select:focus,input:focus,textarea:focus{border-color:var(--accent);outline:none}
+input[readonly]{color:var(--muted);background:var(--raised);cursor:not-allowed;font-family:var(--mono);font-size:12.5px}
+textarea{font-family:var(--mono);font-size:12.5px;line-height:1.7;resize:vertical;min-height:120px}
+.hint{font-size:11.5px;color:var(--faint);margin-top:5px}
+
+/* Signature element: per-line validation ledger */
+.ledger{margin-top:8px;background:var(--bg);border:1px solid var(--border-soft);border-radius:6px;font-family:var(--mono);font-size:11.5px;max-height:180px;overflow:auto;display:none}
+.ledger.show{display:block}
+.ledger .row{display:flex;gap:10px;padding:3px 12px;border-bottom:1px solid var(--border-soft)}
+.ledger .row:last-child{border-bottom:none}
+.ledger .ln{color:var(--faint);width:26px;text-align:right;flex-shrink:0}
+.ledger .val{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
+.ledger .st{flex-shrink:0;font-weight:500}
+.ledger .st.ok{color:var(--ok)} .ledger .st.bad{color:var(--danger)}
+.ledger-summary{display:flex;gap:14px;padding:6px 12px;background:var(--raised);font-size:11px;position:sticky;top:0}
+.ledger-summary .ok{color:var(--ok)} .ledger-summary .bad{color:var(--danger)}
+
+/* Portal checkboxes / chips */
+.checks{display:flex;flex-wrap:wrap;gap:8px}
+.check{display:flex;align-items:center;gap:8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-size:13px;cursor:pointer;user-select:none}
+.check:has(input:checked){border-color:var(--accent);background:rgba(78,140,255,.08)}
+.check input{accent-color:var(--accent)}
+.check.disabled{opacity:.4;cursor:not-allowed}
+.check.disabled input{cursor:not-allowed}
+
+/* Delete picker */
+.picker{background:var(--bg);border:1px solid var(--border);border-radius:6px}
+.picker .search{border:none;border-bottom:1px solid var(--border);border-radius:6px 6px 0 0;background:transparent}
+.picker .list{max-height:240px;overflow:auto}
+.pick{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--border-soft);cursor:pointer;font-size:12.5px}
+.pick:hover{background:var(--raised)}
+.pick input{accent-color:var(--danger)}
+.pick .mono{font-family:var(--mono)}
+.pick .meta{margin-left:auto;color:var(--faint);font-size:11px;flex-shrink:0}
+.typechip{font-family:var(--mono);font-size:10px;padding:1px 6px;border-radius:4px;border:1px solid var(--border);color:var(--muted);flex-shrink:0;text-transform:uppercase}
+.empty{padding:24px;text-align:center;color:var(--faint);font-size:12.5px}
+
+/* Buttons */
+.btn{border:1px solid var(--border);background:var(--raised);color:var(--text);border-radius:6px;padding:9px 18px;font-size:13px;font-weight:600}
+.btn:hover{border-color:#3A4A5E}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn.primary:hover{filter:brightness(1.12)}
+.btn.danger{background:var(--danger);border-color:var(--danger);color:#fff}
+.btn.ghost{background:none}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btnrow{display:flex;gap:10px;margin-top:20px;align-items:center}
+
+/* Table */
+.toolbar{display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap}
+.toolbar input,.toolbar select{width:auto;min-width:180px}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{text-align:left;padding:9px 12px;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border);white-space:nowrap}
+td{padding:9px 12px;border-bottom:1px solid var(--border-soft);vertical-align:top}
+td.mono{font-family:var(--mono);font-size:12px;word-break:break-all}
+tr:hover td{background:rgba(255,255,255,.015)}
+.status{font-family:var(--mono);font-size:10.5px;padding:2px 7px;border-radius:4px}
+.status.active{color:var(--ok);border:1px solid var(--ok)}
+.status.deleted{color:var(--faint);border:1px solid var(--border);text-decoration:line-through}
+
+/* Advisories */
+.adv{display:flex;gap:14px;padding:14px 16px;border:1px solid var(--border);border-radius:var(--r);background:var(--surface);cursor:pointer;margin-bottom:10px;align-items:flex-start}
+.adv:hover{border-color:var(--accent-dim)}
+.adv.unread{border-left:3px solid var(--accent)}
+.adv .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);margin-top:7px;flex-shrink:0}
+.adv.read .dot{background:var(--border)}
+.adv .t{font-weight:600;font-size:13.5px;margin-bottom:2px}
+.adv .m{color:var(--muted);font-size:12px}
+.adv .attach{font-family:var(--mono);font-size:10.5px;color:var(--warn);margin-top:4px}
+.adv .done{font-family:var(--mono);font-size:10.5px;color:var(--ok);margin-top:4px}
+.adv time{margin-left:auto;color:var(--faint);font-size:11.5px;font-family:var(--mono);flex-shrink:0}
+
+/* Modal */
+.overlay{position:fixed;inset:0;background:rgba(5,9,15,.72);display:none;place-items:center;z-index:100;padding:20px}
+.overlay.open{display:grid}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:10px;width:100%;max-width:640px;max-height:88vh;display:flex;flex-direction:column;animation:pop .16s ease}
+.modal.wide{max-width:820px}
+@keyframes pop{from{transform:translateY(8px);opacity:0}to{transform:none;opacity:1}}
+.modal header{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px}
+.modal header h3{font-size:14.5px;font-weight:600;flex:1}
+.modal .x{background:none;border:none;color:var(--muted);font-size:18px;padding:4px 8px}
+.modal .body{padding:20px;overflow:auto}
+.modal footer{padding:14px 20px;border-top:1px solid var(--border);display:flex;gap:10px;justify-content:flex-end}
+.kv{display:grid;grid-template-columns:140px 1fr;gap:8px 16px;font-size:13px}
+.kv dt{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em;padding-top:2px}
+.kv dd{font-family:var(--mono);font-size:12.5px;word-break:break-all}
+.valblock{background:var(--bg);border:1px solid var(--border-soft);border-radius:6px;padding:10px 12px;font-family:var(--mono);font-size:12px;max-height:180px;overflow:auto;white-space:pre-wrap;word-break:break-all}
+.advbody{background:var(--bg);border:1px solid var(--border-soft);border-radius:6px;padding:14px;font-size:13px;max-height:300px;overflow:auto}
+.advbody a{color:var(--accent)}
+
+/* Toasts */
+.toasts{position:fixed;bottom:20px;right:20px;display:flex;flex-direction:column;gap:8px;z-index:200}
+.toast{background:var(--raised);border:1px solid var(--border);border-left:3px solid var(--accent);border-radius:6px;padding:10px 16px;font-size:12.5px;max-width:360px;animation:pop .18s ease}
+.toast.ok{border-left-color:var(--ok)} .toast.err{border-left-color:var(--danger)} .toast.warn{border-left-color:var(--warn)}
+
+.result-line{display:flex;gap:10px;align-items:center;font-family:var(--mono);font-size:12px;padding:6px 0}
+.result-line .p{width:110px;color:var(--muted)}
+.result-line .ok{color:var(--ok)} .result-line .fail{color:var(--danger)} .result-line .warn{color:var(--warn)}
+.spin{width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:sp .7s linear infinite;display:inline-block;vertical-align:-2px}
+@keyframes sp{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+
+<div class="appbar">
+  <!--<div class="brand">
+    <div class="glyph">&gt;_</div>
+    <div>IOC Distribution Portal<small>Security Operations</small></div>
+  </div> -->
+  <!-- Updated Brand Header with Interlocking EZ Monogram -->
+<div class="brand">
+  <div class="glyph-ez" style="width: 32px; height: 32px; background: var(--surface); border: 1px solid var(--border); border-radius: 7px; display: grid; place-items: center; flex-shrink: 0;">
+    <img src="/cyber-security.png" width="22" height="22" alt="EZ IOCHUB logo">
+   <!-- <svg width="22" height="22" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <!-- 'E' Monogram stroke in Accent Blue 
+      <path d="M6 8H14M6 16H12M6 24H14" stroke="var(--accent)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M6 8V24" stroke="var(--accent)" stroke-width="3" stroke-linecap="round"/>
+      <!-- 'Z' Monogram stroke in Defensive Green 
+      <path d="M16 8H26L16 24H26" stroke="var(--ok)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg> --> 
+  </div>
+  <div>
+    <span style="font-size: 15px; font-weight: 700; color: var(--accent); letter-spacing: 0.03em;">EZ <span style="color: var(--text);">IOCHUB</span></span>
+    <small style="display: block; font-weight: 500; color: var(--muted); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase;">Routing Intel. Strengthening Defenses</small>
+  </div>
+</div>
+  <div class="spacer"></div>
+  <select id="themeSel" class="themesel" aria-label="Colour theme">
+    <option value="slate">Slate</option>
+    <option value="light">Light</option>
+  </select>
+  <div class="userbox">
+    <div class="name" id="userName">—</div>
+    <div class="role" id="userRole">—</div>
+  </div>
+  <button class="logoutbtn" id="btnLogout" title="Sign out">Sign out</button>
+</div>
+
+<nav class="tabs" role="tablist">
+  <button class="tab active" data-tab="submit" role="tab">Manage indicators</button>
+<button class="tab" data-tab="inventory" role="tab" style="display:none">Inventory</button>
+  <button class="tab" data-tab="advisories" role="tab" style="display:none">Advisories <span class="badge hidden" id="advBadge">0</span></button>
+</nav>
+
+<main>
+
+<div class="statshead" style="display:none">
+  <span class="t">Daily overview</span>
+  <input type="date" id="stDate" aria-label="Statistics date">
+</div>
+<section class="stats" aria-live="polite" style="display:none">
+  <div class="tile"><span class="k ok" id="stAdded">—</span><span class="l">Added on this date</span></div>
+  <div class="tile"><span class="k danger" id="stDeleted">—</span><span class="l">Deleted on this date</span></div>
+  <div class="tile"><span class="k accent" id="stTotal">—</span><span class="l">Total added till now</span></div>
+  <div class="tile"><span class="k" id="stActive">—</span><span class="l">Currently active</span></div>
+</section>
+
+<!-- ============ TAB: SUBMIT ============ -->
+<section class="panel active" id="panel-submit">
+  <div class="card">
+    <h2>Distribute indicators</h2>
+    <p class="sub">Add indicators to the connected security platforms. Every change is recorded in the reference store.</p>
+
+    <div class="grid">
+      <div>
+        <label for="fAction">Action <span class="req">*</span></label>
+       <select id="fAction">
+          <option value="add">Add indicators</option>
+          <!--<option value="delete" disabled>Delete indicators</option>-->
+        </select>
+      </div>
+      <div id="wrapType">
+        <label for="fType">Indicator type <span class="req">*</span></label>
+        <select id="fType">
+          <option value="ip">IP address (IPv4 / IPv6)</option>
+          <option value="url">URL</option>
+          <option value="domain">Domain</option>
+          <option value="hash">File hash (MD5 / SHA-1 / SHA-256)</option>
+          <option value="email">Email address</option>
+        </select>
+      </div>
+
+      <!-- ADD mode -->
+      <div class="full" id="wrapValues">
+        <label for="fValues">Indicator values <span class="req">*</span></label>
+        <textarea id="fValues" rows="6" spellcheck="false" placeholder="One indicator per line, e.g.&#10;203.0.113.45&#10;2001:db8::7d1"></textarea>
+        <div class="ledger" id="ledger" aria-live="polite"></div>
+        <p class="hint">Each line is validated live against the selected type. Internal environment assets are rejected — you'll be asked to remove them before anything is submitted.</p>
+      </div>
+
+      <!-- DELETE mode -->
+      <div class="full" id="wrapDelete" style="display:none">
+        <label>Select indicators to delete <span class="req">*</span></label>
+        <div class="picker">
+          <input type="text" class="search" id="delSearch" placeholder="Filter stored indicators…">
+          <div class="list" id="delList"><div class="empty">Loading stored indicators…</div></div>
+        </div>
+        <p class="hint">Shows stored indicators of the selected type only. Select one or more values; they will be removed from every platform they were distributed to.</p>
+      </div>
+
+      <div>
+        <label for="fAddedBy">Added by</label>
+        <input type="text" id="fAddedBy" readonly value="resolving signed-in user…" aria-label="Added by, taken from your sign-in">
+      </div>
+    <div>
+        <label for="fDate">Date</label>
+        <input type="date" id="fDate" readonly>
+      </div>
+      <div class="full">
+        <label for="fRef">Reference <span class="req" id="fRefReq">*</span></label>
+        <input type="text" id="fRef" placeholder="INC0012345" required>
+        <p class="hint" id="fRefHint">e.g. a ServiceNow incident number. Letters and digits only — no spaces, dashes or punctuation.</p>
+      </div>
+
+      <div class="full">
+        <label for="fExtraEmail">Additional email <span class="opt">(optional)</span></label>
+        <input type="text" id="fExtraEmail" placeholder="name@egonzehnder.com, name2@egonzehnder.com">
+        <p class="hint">Separate multiple addresses with commas.</p>
+      </div>
+
+      <div class="full" id="wrapPortals">
+        <label>Target platforms</label>
+        <div class="checks" id="portalChecks"></div>
+        <p class="hint" id="portalHint"></p>
+      </div>
+
+      <div class="full" id="wrapFalconAction" style="display:none">
+        <label for="fFalconAction">CrowdStrike action <span class="req">*</span></label>
+        <select id="fFalconAction">
+        <option value="">Select an action…</option>
+        </select>
+        <p class="hint">Required for hash indicators when CrowdStrike is a selected platform. IP and domain indicators are always sent as Detect Only</p>
+      </div>
+    </div>
+
+    <div class="btnrow">
+      <button class="btn primary" id="btnSubmit" disabled>Review &amp; submit</button>
+      <button class="btn ghost" id="btnClear">Clear form</button>
+      <span id="submitNote" class="hint" style="margin:0"></span>
+    </div>
+  </div>
+
+  <div class="card" id="resultCard" style="display:none">
+    <h2 id="resultTitle">Distribution result</h2>
+    <div id="resultBody"></div>
+  </div>
+</section>
+
+<!-- ============ TAB: INVENTORY ============ -->
+<section class="panel" id="panel-inventory">
+  <div class="card">
+    <h2>Indicator inventory</h2>
+    <p class="sub">All indicators recorded in the reference store, including who added them and why.</p>
+    <div class="toolbar">
+      <input type="text" id="invSearch" placeholder="Search value or reference…">
+      <select id="invType">
+        <option value="">All types</option>
+        <option value="ip">IP address</option><option value="url">URL</option>
+        <option value="domain">Domain</option><option value="hash">File hash</option>
+        <option value="email">Email address</option>
+      </select>
+   <select id="invStatus">
+        <option value="">All statuses</option>
+        <option value="active">Active</option>
+        <option value="deleted">Deleted</option>
+      </select>
+     <select id="invDateRange">
+        <option value="">All time</option>
+        <option value="24h">Last 24 hours</option>
+        <option value="3d">Last 3 days</option>
+        <option value="7d">Last 7 days</option>
+        <option value="custom">Custom range…</option>
+      </select>
+      <input type="date" id="invDateFrom" title="From date" style="display:none">
+      <input type="date" id="invDateTo" title="To date" style="display:none">
+      <button class="btn" id="invRefresh">Refresh</button>
+      <button class="btn" id="invExport" style="display:none">Export CSV</button>
+    </div>
+    <div style="overflow:auto">
+      <table>
+        <thead><tr><th>Type</th><th>Value</th><th>Added by</th><th>Date</th><th>Reference</th><th>Platforms</th><th>Status</th></tr></thead>
+        <tbody id="invBody"><tr><td colspan="7" class="empty">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+  <div class="btnrow" style="justify-content:space-between;margin-top:14px">
+      <button class="btn" id="invPrev">&larr; Prev</button>
+      <span id="invPageLabel" class="hint" style="margin:0"></span>
+      <button class="btn" id="invNext">Next &rarr;</button>
+    </div>
+</section>
+
+<!-- ============ TAB: ADVISORIES ============ -->
+<section class="panel" id="panel-advisories">
+  <div class="card">
+    <h2>Security advisories</h2>
+    <p class="sub">Mirrored from the SOC Teams advisory channel. New posts appear here automatically and raise a notification. Open one to review and extract its indicators.</p>
+    <div id="advList"><div class="empty">Loading advisories…</div></div>
+  </div>
+</section>
+
+</main>
+
+<!-- ============ MODALS ============ -->
+<div class="overlay" id="ovResult">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="resultModalTitle">
+    <header><h3 id="resultModalTitle">Result</h3><button class="x" data-close>&times;</button></header>
+    <div class="body" id="resultModalBody"></div>
+    <footer><button class="btn primary" data-close>Close</button></footer>
+  </div>
+</div>
+
+<div class="overlay" id="ovConfirm">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="cfTitle">
+    <header><h3 id="cfTitle">Confirm submission</h3><button class="x" data-close>&times;</button></header>
+    <div class="body" id="cfBody"></div>
+    <footer>
+      <button class="btn" id="cfReset">Go back &amp; change</button>
+      <button class="btn primary" id="cfConfirm">Confirm &amp; proceed</button>
+    </footer>
+  </div>
+</div>
+
+<div class="overlay" id="ovAdvisory">
+  <div class="modal wide" role="dialog" aria-modal="true">
+    <header><h3 id="advTitle">Advisory</h3><button class="x" data-close>&times;</button></header>
+    <div class="body">
+      <dl class="kv" id="advMeta"></dl>
+      <div style="margin-top:14px"><label>Message</label><div class="advbody" id="advBody"></div></div>
+      <div id="advAttach" style="margin-top:12px"></div>
+      <div id="extractZone" style="margin-top:16px"></div>
+    </div>
+    <footer>
+      <button class="btn" data-close>Close</button>
+      <button class="btn primary" id="btnExtract">Extract IOCs</button>
+      <button class="btn primary" id="btnPush" style="display:none">Push selected to platforms</button>
+    </footer>
+  </div>
+</div>
+
+<div class="overlay" id="ovPortalPick">
+  <div class="modal" role="dialog" aria-modal="true">
+    <header><h3>Choose target platforms</h3><button class="x" data-close>&times;</button></header>
+    <div class="body">
+      <p class="sub" style="margin-bottom:12px">The selected indicators will be added to the platforms you choose and recorded in the reference store.</p>
+      <div class="checks" id="pushPortalChecks"></div>
+      <div style="margin-top:14px">
+        <label for="pushRef">Reference <span class="req">*</span></label>
+        <input type="text" id="pushRef" placeholder="INC0012345 / advisory ID">
+      </div>
+    </div>
+    <footer>
+      <button class="btn" data-close>Cancel</button>
+      <button class="btn primary" id="btnPushConfirm">Push indicators</button>
+    </footer>
+  </div>
+</div>
+
+<div class="toasts" id="toasts"></div>
+
+<script>
+"use strict";
+/* ================================================================
+   IOC Distribution Portal — frontend
+   No identities, tenants or endpoints are hard-coded: the signed-in
+   user and their roles come from the App Service proxy (GET /api/me,
+   backed by Entra ID Easy Auth) and all tunable behaviour comes from
+   GET /api/config.
+   ================================================================ */
+
+const DEFAULT_CONFIG = {
+  referenceRequired: true,
+  falconHashActions: [
+    {id:"prevent",       label:"Block"},
+    {id:"detect",        label:"Detect Only"},
+    {id:"prevent_no_ui", label:"Block + Hide Detection"}
+  ],
+  portals: [
+    {id:"crowdstrike", label:"CrowdStrike"},
+    {id:"sentinel",    label:"Microsoft Sentinel"},
+    {id:"proofpoint",  label:"Proofpoint"},
+    {id:"zscaler",     label:"Zscaler"}
+  ],
+  advisoryPollSeconds: 60,
+  desktopNotifications: true,
+  inventoryPageSize: 50,
+    platformTypes: {
+    crowdstrike: ["hash","ip","domain"],
+    sentinel:    ["ip","domain","hash","url","email"],
+    proofpoint:  ["email","ip"],
+    zscaler:     ["url","domain","ip"]
+  },
+  permissions: {
+    add:            ["ioc-operator","ioc-admin"],
+    delete:         ["ioc-admin"],
+    export:         ["ioc-admin"],
+    viewInventory:  ["ioc-admin"],
+    viewAdvisories: ["ioc-admin"]
+  }
+};
+
+const S = {
+  cfg: {...DEFAULT_CONFIG},
+  user: {name:"", roles:[]},
+  iocs: [],
+  advisories: [],
+  seen: new Set(JSON.parse(localStorage.getItem("advSeen")||"[]")),
+  currentAdvisory: null,
+  extracted: [],
+pendingSubmit: null,
+  internalHits: new Map(),
+  pageSize: DEFAULT_CONFIG.inventoryPageSize,
+  currentPage: 1
+};
+
+const $ = s => document.querySelector(s);
+const el = (t,c,h)=>{const n=document.createElement(t);if(c)n.className=c;if(h!==undefined)n.innerHTML=h;return n;};
+const esc = s => String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+
+/* ---------------- validation ---------------- */
+const RX = {
+  ipv4: /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/,
+  ipv6: /^(([0-9a-f]{1,4}:){7}[0-9a-f]{1,4}|([0-9a-f]{1,4}:){1,7}:|([0-9a-f]{1,4}:){1,6}:[0-9a-f]{1,4}|([0-9a-f]{1,4}:){1,5}(:[0-9a-f]{1,4}){1,2}|([0-9a-f]{1,4}:){1,4}(:[0-9a-f]{1,4}){1,3}|([0-9a-f]{1,4}:){1,3}(:[0-9a-f]{1,4}){1,4}|([0-9a-f]{1,4}:){1,2}(:[0-9a-f]{1,4}){1,5}|[0-9a-f]{1,4}:((:[0-9a-f]{1,4}){1,6})|:((:[0-9a-f]{1,4}){1,7}|:)|::(ffff(:0{1,4})?:)?((25[0-5]|(2[0-4]|1?\d)?\d)\.){3}(25[0-5]|(2[0-4]|1?\d)?\d)|([0-9a-f]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1?\d)?\d)\.){3}(25[0-5]|(2[0-4]|1?\d)?\d))$/i,
+  domain: /^(?=.{1,253}$)(xn--)?[a-z0-9_]([a-z0-9_-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/i,
+  hash: /^([a-f0-9]{32}|[a-f0-9]{40}|[a-f0-9]{64})$/i,
+  email: /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
+};
+function validate(type, raw){
+  const v = raw.trim();
+  if(!v) return null;
+  // Internal whitespace is never valid for any IOC type — e.g. "10.0.36 .1"
+  // or "https://x. xyz.com" are not one continuous value. Checked before
+  // type-specific patterns so the message is specific, not a generic
+  // format-mismatch. Leading/trailing whitespace was already removed above
+  // by .trim() and is fine — only whitespace INSIDE the value is rejected.
+  if(/\s/.test(v)) return {ok:false, note:"contains a space or other whitespace — must be one continuous value"};
+  switch(type){
+    case "ip":
+      if(RX.ipv4.test(v)) return {ok:true, note:"IPv4"};
+      if(RX.ipv6.test(v)) return {ok:true, note:"IPv6"};
+      return {ok:false, note:"not a valid IPv4/IPv6 address"};
+    case "url":
+      try{
+        const u = new URL(v);
+        if(!/^https?:$/.test(u.protocol)) return {ok:false, note:"http(s) URLs only"};
+        if(!u.hostname.includes(".") && !RX.ipv6.test(u.hostname.replace(/[\[\]]/g,""))) return {ok:false, note:"host looks incomplete"};
+        return {ok:true, note:"URL"};
+      }catch{ return {ok:false, note:"not a valid URL"} }
+    /*case "domain":
+      return RX.domain.test(v) ? {ok:true, note:"domain"} : {ok:false, note:"not a valid domain"};*/
+    case "domain":
+      if(!RX.domain.test(v)) return {ok:false, note:"not a valid domain"};
+      // An IP is not a domain. The domain pattern allows all-numeric labels,
+      // so "18.2.2.2" would otherwise pass here and then be checked against
+      // the wrong internal-asset list server-side.
+      if(RX.ipv4.test(v) || RX.ipv6.test(v)) return {ok:false, note:"not a valid domain"};
+      if(/^\d+$/.test(v.split(".").pop())) return {ok:false, note:"domains cannot end in a number"};
+      return {ok:true, note:"domain"};
+    case "hash":
+      if(!RX.hash.test(v)) return {ok:false, note:"expect MD5/SHA-1/SHA-256 hex"};
+      return {ok:true, note:{32:"MD5",40:"SHA-1",64:"SHA-256"}[v.length]};
+    case "email":
+      return RX.email.test(v) ? {ok:true, note:"email"} : {ok:false, note:"not a valid email address"};
+  }
+  return {ok:false, note:"unknown type"};
+}
+
+/* Sample values shown in the textbox per selected IOC type */
+const PLACEHOLDERS = {
+  ip:     "One indicator per line, e.g.\n203.0.113.45\n2001:db8::7d1",
+  url:    "One indicator per line, e.g.\nhttps://invoice-check.example/login.php\nhttp://malicious-cdn.example/payload.js",
+  domain: "One indicator per line, e.g.\nmalicious-cdn.example\nphish.bad-domain.example",
+  hash:   "One indicator per line, e.g.\n44d88612fea8a8f36de82e1278abb02f\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  email:  "One indicator per line, e.g.\nbilling@invoice-check.example\nspoof@phish.bad-domain.example"
+};
+function setPlaceholder(){ $("#fValues").placeholder = PLACEHOLDERS[$("#fType").value] || PLACEHOLDERS.ip; }
+
+/* ---------------- api helper ---------------- */
+async function api(path, opts={}){
+  const res = await fetch(path, {headers:{"Content-Type":"application/json"}, ...opts});
+  if(!res.ok){
+    let msg = res.status+" "+res.statusText;
+    try{ const j = await res.json(); msg = j.error || msg; }catch{}
+    throw new Error(msg);
+  }
+  return res.status===204 ? null : res.json();
+}
+
+/* ---------------- boot ---------------- */
+init();
+async function init(){
+  const theme = localStorage.getItem("theme") || "light";
+  document.documentElement.dataset.theme = theme;
+  $("#themeSel").value = theme;
+  setPlaceholder();
+  $("#fDate").value = new Date().toISOString().slice(0,10);
+  $("#stDate").value = new Date().toISOString().slice(0,10);
+  wireEvents();
+  await Promise.all([loadUser(), loadConfig()]);
+  renderPortalChecks($("#portalChecks"));
+  applyRoleGates();
+  if(can("viewInventory")) refreshInventory();
+  if(can("viewAdvisories")){
+    refreshAdvisories(true);
+    setInterval(()=>refreshAdvisories(false), (S.cfg.advisoryPollSeconds||60)*1000);
+  }
+  if(S.cfg.desktopNotifications && "Notification" in window && Notification.permission==="default"){
+    Notification.requestPermission();
+  }
+}
+
+async function loadUser(){
+  try{
+    const r = await fetch("/api/me", {credentials:"same-origin"});
+    if(!r.ok) throw new Error("Authentication endpoint returned HTTP "+r.status);
+    const j = await r.json();
+    if(!j || !j.name) throw new Error("No signed-in user was returned by the frontend authentication endpoint");
+    S.user = {name: j.name, roles: Array.isArray(j.roles) ? j.roles : []};
+  }catch(e){
+    S.user = {name:"Authentication required", roles:[]};
+    toast("Authentication unavailable: "+e.message,"err");
+  }
+  $("#userName").textContent = S.user.name;
+  $("#userRole").textContent = S.user.roles.join(" · ") || "no role assigned";
+  $("#fAddedBy").value = S.user.name;
+}
+
+/* ---- role gates (reader / operator / admin) ----
+   Which roles may add/delete/export is CONFIG (permissions in portal
+   config), enforced again server-side — the UI only mirrors it. */
+function can(action){
+  return (S.cfg.permissions?.[action] || []).some(r=>S.user.roles.includes(r));
+}
+function applyRoleGates(){
+  $("#invExport").style.display = can("export") ? "" : "none";
+  //const delOpt = document.querySelector('#fAction option[value="delete"]');
+  //delOpt.disabled = !can("delete");
+  //if(!can("delete") && $("#fAction").value==="delete"){ $("#fAction").value="add"; onActionChange(); }
+  //const allowed = $("#fAction").value==="delete" ? can("delete") : can("add");
+  const allowed = can("add");
+  $("#btnSubmit").disabled = !allowed;
+  $("#submitNote").textContent = allowed ? "" :
+    (S.user.roles.length ? "Your role does not permit this action." :
+     "No portal role assigned — ask an admin to add you to an access group.");
+
+  /* Tab + stats visibility — driven entirely by the "permissions" block in
+     portal config, so which tabs each role sees changes with a config edit,
+     never a code change. Manage indicators has no view gate: every signed-in
+     role lands there. Hidden tabs are also blocked server-side (see the
+     viewInventory/viewAdvisories checks the API makes) — this is UI
+     courtesy on top of a real boundary, not the boundary itself. */
+  document.querySelector('.tab[data-tab="inventory"]').style.display = can("viewInventory") ? "" : "none";
+  document.querySelector('.tab[data-tab="advisories"]').style.display = can("viewAdvisories") ? "" : "none";
+  document.querySelector(".statshead").style.display = can("viewInventory") ? "" : "none";
+  document.querySelector(".stats").style.display = can("viewInventory") ? "" : "none";
+  // If the active tab just became hidden (e.g. permissions changed under a
+  // live session), fall back to Manage indicators, which is always visible.
+  const activeTab = document.querySelector(".tab.active");
+  if(activeTab && activeTab.style.display === "none"){
+    document.querySelector('.tab[data-tab="submit"]').click();
+  }
+}
+
+async function loadConfig(){
+  try{ S.cfg = {...DEFAULT_CONFIG, ...(await api("/api/config"))}; }catch{ /* defaults */ }
+  const refRequired = S.cfg.referenceRequired !== false; // default true if unset
+  $("#fRefReq").style.display = refRequired ? "" : "none";
+  $("#fRef").required = refRequired;
+  $("#fRefHint").textContent = refRequired
+    ? "e.g. a ServiceNow incident number. Letters and digits only — no spaces, dashes or punctuation."
+    : "Optional. If provided: letters and digits only — no spaces, dashes or punctuation.";
+
+  const sel = $("#fFalconAction");
+  sel.innerHTML = '<option value="">Select an action…</option>' +
+    (S.cfg.falconHashActions || DEFAULT_CONFIG.falconHashActions)
+      .map(a=>`<option value="${esc(a.id)}">${esc(a.label)}</option>`).join("");
+}
+
+function renderPortalChecks(container, checked=true, allowed=null){
+  container.innerHTML = "";
+  for(const p of S.cfg.portals){
+    const ok = !allowed || allowed.has(p.id);
+    const l = el("label","check"+(ok?"":" disabled"),
+      `<input type="checkbox" value="${esc(p.id)}" ${ok&&checked?"checked":""} ${ok?"":"disabled"}> ${esc(p.label)}`);
+    if(!ok) l.title = "Not selectable — the selected indicators were not distributed to this platform";
+    container.appendChild(l);
+  }
+  if(container.id === "portalChecks") updateFalconActionVisibility();
+}
+
+/* Shows/enables the CrowdStrike Action dropdown only when BOTH are true:
+   CrowdStrike is among the CHECKED platform checkboxes, AND the selected
+   indicator type is "hash". This mirrors a real constraint of Falcon's
+   API, confirmed by testing — IP and domain indicators only support
+   "detect" there; only hash indicators (md5/sha256) can be blocked. For
+   ip/domain, no dropdown is shown and no analyst choice is needed — the
+   server always sends "detect" for those types regardless. Called after
+   every renderPortalChecks() on the MAIN form's #portalChecks, on every
+   checkbox change there, and on every indicator-type change. The
+   advisory-push modal uses a separate #pushPortalChecks container with no
+   Action field of its own, so this is scoped to #portalChecks only. */
+function updateFalconActionVisibility(){
+  const csChecked = [...document.querySelectorAll("#portalChecks input:checked")]
+    .some(i => i.value === "crowdstrike");
+  const isHash = $("#fType").value === "hash";
+  const showDropdown = csChecked && isHash;
+  const wrap = $("#wrapFalconAction");
+  wrap.style.display = showDropdown ? "" : "none";
+  $("#fFalconAction").required = showDropdown;
+  if(!showDropdown) $("#fFalconAction").value = "";
+}
+
+/* Delete mode: only the platforms the selected indicators were actually
+   distributed to are selectable; the rest are greyed out, so a deletion
+   can never target a platform that would fail. */
+function updateDeletePortals(){
+  const hint = $("#portalHint");
+  if($("#fAction").value !== "delete"){
+    renderPortalChecks($("#portalChecks"));
+    hint.textContent = "";
+    return;
+  }
+  const ids = [...document.querySelectorAll("#delList input:checked")].map(i=>i.value);
+  const sel = S.iocs.filter(i=>ids.includes(i.id));
+  const allowed = new Set(sel.flatMap(i=>i.portals||[]));
+  renderPortalChecks($("#portalChecks"), true, allowed);
+  hint.textContent = ids.length
+    ? "Greyed-out platforms never received these indicators, so they're excluded from the deletion."
+    : "Select indicators above — platforms will enable based on where they were distributed.";
+}
+const selectedPortals = c => [...c.querySelectorAll("input:checked")].map(i=>i.value);
+
+/* ---------------- events ---------------- */
+function wireEvents(){
+  document.querySelectorAll(".tab").forEach(t=>t.addEventListener("click",()=>{
+    document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("active",x===t));
+    document.querySelectorAll(".panel").forEach(p=>p.classList.toggle("active",p.id==="panel-"+t.dataset.tab));
+    if(t.dataset.tab==="advisories") markAllSeen();
+  }));
+  document.querySelectorAll("[data-close]").forEach(b=>b.addEventListener("click",e=>e.target.closest(".overlay").classList.remove("open")));
+  /* ---document.querySelectorAll(".overlay").forEach(o=>o.addEventListener("click",e=>{if(e.target===o)o.classList.remove("open")})); ---*/
+
+  $("#fAction").addEventListener("change", onActionChange);
+  $("#fType").addEventListener("change", ()=>{ setPlaceholder(); S.internalHits.clear(); runLedger(); clearResult(); updateFalconActionVisibility(); });
+  $("#themeSel").addEventListener("change", e=>{ document.documentElement.dataset.theme = e.target.value; localStorage.setItem("theme", e.target.value); });
+  $("#btnLogout").addEventListener("click", ()=>{
+    window.location.href = "/.auth/logout?post_logout_redirect_uri=/";
+  });
+  /* ---$("#fValues").addEventListener("input", ()=>{ S.internalHits.clear(); runLedger(); });---*/
+  $("#fValues").addEventListener("input", ()=>{ S.internalHits.clear(); runLedger(); clearResult(); });
+  $("#fRef").addEventListener("input", clearResult);
+  $("#fExtraEmail").addEventListener("input", clearResult);
+  $("#portalChecks").addEventListener("change", updateFalconActionVisibility);
+  $("#btnClear").addEventListener("click", clearForm);
+  $("#btnSubmit").addEventListener("click", onReview);
+  $("#cfReset").addEventListener("click", ()=>$("#ovConfirm").classList.remove("open"));
+  $("#cfConfirm").addEventListener("click", onConfirm);
+  $("#delSearch").addEventListener("input", renderDeleteList);
+  $("#delList").addEventListener("change", updateDeletePortals);
+["#invSearch","#invType","#invStatus","#invDateFrom","#invDateTo"].forEach(s=>$(s).addEventListener("input", ()=>{ S.currentPage=1; renderInventory(); }));
+  $("#invDateRange").addEventListener("change", applyDateRangePreset);
+  $("#invRefresh").addEventListener("click", refreshInventory);
+  $("#invPrev").addEventListener("click", ()=>{ S.currentPage--; renderInventory(); });
+  $("#invNext").addEventListener("click", ()=>{ S.currentPage++; renderInventory(); });
+  $("#stDate").addEventListener("input", updateStats);
+  $("#invExport").addEventListener("click", exportInventory);
+  $("#btnExtract").addEventListener("click", onExtract);
+  $("#btnPush").addEventListener("click", openPortalPick);
+  $("#btnPushConfirm").addEventListener("click", onPushConfirm);
+}
+
+function onActionChange(){
+  const del = $("#fAction").value==="delete";
+  $("#wrapValues").style.display = del?"none":"";
+  $("#wrapDelete").style.display = del?"":"none";
+  $("#btnSubmit").classList.toggle("danger", del);
+  $("#btnSubmit").classList.toggle("primary", !del);
+  if(del) renderDeleteList();
+  updateDeletePortals();
+  applyRoleGates();
+}
+
+function clearForm(){
+  $("#fValues").value=""; $("#fRef").value=""; $("#fExtraEmail").value="";
+  $("#fDate").value=new Date().toISOString().slice(0,10);
+  $("#ledger").classList.remove("show");
+  $("#resultCard").style.display="none";
+}
+
+/* ---------------- live per-line validation ledger ---------------- */
+function parseLines(){
+  return $("#fValues").value.split(/\r?\n/).map((raw,i)=>({line:i+1, raw, v:raw.trim()})).filter(x=>x.v);
+}
+function runLedger(){
+  const type = $("#fType").value, L = $("#ledger");
+  const lines = parseLines();
+  if(!lines.length){ L.classList.remove("show"); return; }
+  let ok=0,bad=0, rows="";
+  for(const x of lines){
+    let r = validate(type, x.v);
+    if(r.ok && S.internalHits.has(x.v.toLowerCase()))
+      r = {ok:false, note: S.internalHits.get(x.v.toLowerCase()) + " — remove and try again"};
+    r.ok?ok++:bad++;
+    rows += `<div class="row"><span class="ln">${x.line}</span><span class="val">${esc(x.v)}</span><span class="st ${r.ok?"ok":"bad"}">${r.ok?"✓ ":"✗ "}${esc(r.note)}</span></div>`;
+  }
+  L.innerHTML = `<div class="ledger-summary"><span class="ok">${ok} valid</span><span class="bad">${bad} invalid</span><span style="color:var(--faint)">${lines.length} lines</span></div>`+rows;
+  L.classList.add("show");
+}
+
+/* ---------------- delete picker ---------------- */
+function renderDeleteList(){
+  const list = $("#delList");
+  const q = $("#delSearch").value.toLowerCase();
+  const ty = $("#fType").value;
+  const act = S.iocs.filter(i=>i.status==="active" && i.ioc_type===ty && (!q || i.ioc_value.toLowerCase().includes(q) || (i.reference||"").toLowerCase().includes(q)));
+  if(!act.length){ list.innerHTML = `<div class="empty">No stored ${esc(ty)} indicators${q?" match your filter":""}. Switch the indicator type to see others.</div>`; updateDeletePortals(); return; }
+  const keep = new Set([...list.querySelectorAll("input:checked")].map(i=>i.value));
+  list.innerHTML = "";
+  for(const i of act){
+    const row = el("label","pick",
+      `<input type="checkbox" value="${esc(i.id)}" ${keep.has(i.id)?"checked":""}>
+       <span class="typechip">${esc(i.ioc_type)}</span>
+       <span class="mono">${esc(i.ioc_value)}</span>
+       <span class="meta">${esc(i.added_by)} · ${esc(i.date)}</span>`);
+    list.appendChild(row);
+  }
+  updateDeletePortals();
+}
+
+/* ---------------- review + confirm ---------------- 
+async function onReview(){
+  const action = $("#fAction").value;
+  if(action==="delete" && !document.querySelectorAll("#delList input:checked").length)
+    return toast("Select at least one indicator to delete.","warn");
+  const portals = selectedPortals($("#portalChecks"));
+  if(!portals.length) return toast(action==="delete"
+    ? "None of the enabled platforms are selected."
+    : "Choose at least one target platform.","warn");
+  if(!$("#fRef").value.trim()) return toast("Reference is required (e.g. a ServiceNow incident).","warn"); --- */
+  
+  async function onReview(){
+  // Every submission starts from a clean slate — otherwise a warning from a
+  // previous attempt stays pinned below the form and looks like it belongs
+  // to the indicator being submitted now.
+  clearResult();
+
+  const action = $("#fAction").value;
+  if(action==="delete" && !document.querySelectorAll("#delList input:checked").length)
+    return toast("Select at least one indicator to delete.","warn");
+  const portals = selectedPortals($("#portalChecks"));
+  if(!portals.length) return toast(action==="delete"
+    ? "None of the enabled platforms are selected."
+    : "Choose at least one target platform.","warn");
+
+  const ref = $("#fRef").value.trim();
+  const refRequired = S.cfg.referenceRequired !== false;
+  if(!ref){
+    if(refRequired) return toast("Reference is required (e.g. a ServiceNow incident).","warn");
+  }else if(!/^[A-Za-z0-9]+$/.test(ref)){
+    showResult(
+      `<div class="result-line"><span class="warn">&#9888;</span><span>Reference <span class="mono">${esc(ref)}</span> is not valid — use letters and numbers only, with no spaces, dashes or punctuation.</span></div>`,
+      "Invalid reference");
+    return toast("Reference must be letters and numbers only.","err");
+  }
+
+  // Optional extra CC — comma-separated, validated the same way the
+  // backend will validate it again server-side.
+  const extraEmailRaw = $("#fExtraEmail").value.trim();
+  const EMAIL_RX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+  const extraEmails = extraEmailRaw ? extraEmailRaw.split(",").map(s=>s.trim()).filter(Boolean) : [];
+  const badEmails = extraEmails.filter(e=>!EMAIL_RX.test(e));
+  if(badEmails.length){
+    showResult(
+      `<div class="result-line"><span class="warn">&#9888;</span><span>Additional email address is not valid: <span class="mono">${esc(badEmails.join(", "))}</span></span></div>`,
+      "Invalid email address");
+    return toast("Check the additional email address(es) — one or more look invalid.","err");
+  }
+
+if(action==="add"){
+    const type = $("#fType").value, lines = parseLines();
+    const platformTypes = S.cfg.platformTypes || {};
+    const unsupported = portals.filter(p => !(platformTypes[p] || []).includes(type));
+    if(unsupported.length){
+      const rows = unsupported.map(p=>
+       /* `<div class="result-line"><span class="warn">⚠</span> ${esc(portalLabel(p))} does not support <span class="mono">${esc(type)}</span> indicators — unselect it or change the indicator type.</div>`*/
+       `<div class="result-line"><span class="warn">⚠</span><span>${esc(portalLabel(p))} does not support <span class="mono">${esc(type)}</span> indicators — unselect it or change the indicator type.</span></div>`
+      ).join("");
+      showResult(rows, "Indicator type not supported");
+      toast(`${type} is not supported on ${unsupported.length} selected platform(s).`,"err");
+      return;
+        }
+    if(!lines.length) return toast("Enter at least one indicator value.","warn");
+  const bad = lines.filter(x=>!validate(type,x.v).ok);
+  if(bad.length) return toast(`${bad.length} line(s) fail validation — fix them before submitting.`,"err");
+  if(!$("#fDate").value) return toast("Pick a date.","warn");
+
+  const falconAction = $("#fFalconAction").value;
+  if(portals.includes("crowdstrike") && type === "hash" && !falconAction)
+    return toast("Select a CrowdStrike action (Block / Detect Only / Block + Hide Detection) before submitting.","warn");
+
+  let blocked = [];
+    try{
+      blocked = (await api("/api/iocs/check-internal",{method:"POST",
+        body:JSON.stringify({items: lines.map(x=>({type, value:x.v})), portals})})).blocked || [];
+    }catch(e){
+      // Pre-check failed — not silent anymore. The real safety net (server-side
+      // block on actual submit) still applies regardless; this just means the
+      // early warning couldn't run, and now says so instead of hiding it.
+      console.error("pre-submit check failed:", e);
+      toast("Could not pre-check these values right now — you'll still be blocked on final submit if any are internal or already tracked.","warn");
+    }
+if(blocked.length){
+    S.internalHits = new Map(blocked.map(b=>[b.value.toLowerCase(), b.reason]));
+    runLedger();
+    const isAlready = r => r.toLowerCase().includes("already distributed");
+    const rows = blocked.map(b=>{
+      return isAlready(b.reason)
+        ? `<div class="result-line"><span class="warn">⚠</span><span>Already distributed to the selected platform(s) — please remove <span class="mono">${esc(b.value)}</span> and try again.</span></div>`
+        : `<div class="result-line"><span class="warn">⚠</span><span>This IOC (<span class="mono">${esc(b.value)}</span>) can't be blocked — ${esc(b.reason)}. Please remove it and try again.</span></div>`;
+    }).join("");
+    const anyAlready = blocked.some(b=>isAlready(b.reason));
+    const anyInternal = blocked.some(b=>!isAlready(b.reason));
+    const title = anyAlready && anyInternal ? "Submission blocked"
+                : anyAlready ? "Already distributed"
+                : "IOC can't be blocked";
+    showResult(rows, title);
+    toast(`${blocked.length} value(s) blocked — remove the highlighted line(s) and try again.`,"err");
+    return;
+  }
+   // S.pendingSubmit = {action, type, values: lines.map(x=>x.v), date:$("#fDate").value, reference:$("#fRef").value.trim(), portals};
+   S.pendingSubmit = {action, type, values: lines.map(x=>x.v), date:$("#fDate").value, reference:ref, portals, extraEmails, falconAction};
+  }else{
+    const ids = [...document.querySelectorAll("#delList input:checked")].map(i=>i.value);
+    if(!ids.length) return toast("Select at least one indicator to delete.","warn");
+    const items = S.iocs.filter(i=>ids.includes(i.id));
+    //S.pendingSubmit = {action, ids, items, reference:$("#fRef").value.trim(), portals};
+    S.pendingSubmit = {action, ids, items, reference:ref, portals};
+  }
+  renderConfirm();
+  $("#ovConfirm").classList.add("open");
+}
+
+function renderConfirm(){
+  const p = S.pendingSubmit, add = p.action==="add";
+  $("#cfTitle").textContent = add ? "Confirm — add indicators" : "Confirm — delete indicators";
+  const vals = add ? p.values : p.items.map(i=>`${i.ioc_value}  (${i.ioc_type})`);
+  $("#cfBody").innerHTML = `
+    <dl class="kv">
+      <dt>Action</dt><dd>${add?"Add":"Delete"}</dd>
+      ${add?`<dt>Type</dt><dd>${esc(p.type)}</dd>`:""}
+      <dt>${add?"Values":"Selected"} (${vals.length})</dt><dd><div class="valblock">${vals.map(esc).join("\n")}</div></dd>
+      <dt>Added by</dt><dd>${esc(S.user.name)}</dd>
+      ${add?`<dt>Date</dt><dd>${esc(p.date)}</dd>`:""}
+      <dt>Reference</dt><dd>${esc(p.reference)||"—"}</dd>
+      <dt>Platforms</dt><dd>${p.portals.map(id=>esc(portalLabel(id))).join(", ")}</dd>
+      ${add && p.portals.includes("crowdstrike") ? (p.type === "hash"
+        ? `<dt>CrowdStrike action</dt><dd>${esc((S.cfg.falconHashActions||[]).find(a=>a.id===p.falconAction)?.label || p.falconAction || "—")}</dd>`
+        : `<dt>CrowdStrike action</dt><dd>Detect Only (automatic — IP/domain indicators cannot be blocked in CrowdStrike)</dd>`) : ""}
+      ${p.extraEmails && p.extraEmails.length ? `<dt>Additional email</dt><dd>${esc(p.extraEmails.join(", "))}</dd>` : ""}
+    </dl>
+    ${add?"":'<p class="hint" style="margin-top:12px;color:var(--danger)">Deletion removes these indicators from the selected platforms and marks them deleted in the reference store.</p>'}`;
+}
+const portalLabel = id => (S.cfg.portals.find(p=>p.id===id)||{label:id}).label;
+
+async function onConfirm(){
+  $("#ovConfirm").classList.remove("open");
+  const p = S.pendingSubmit;
+  showResult(`<div class="result-line"><span class="spin"></span> Submitting…</div>`, p.action==="add"?"Distribution result":"Deletion result");
+  try{
+   const out = p.action==="add"
+      ? await api("/api/iocs",{method:"POST",body:JSON.stringify({ioc_type:p.type, values:p.values, date:p.date, reference:p.reference, portals:p.portals, extraEmail:(p.extraEmails||[]).join(","), falconAction:p.falconAction||""})})
+      : await api("/api/iocs/delete",{method:"POST",body:JSON.stringify({ids:p.ids, reference:p.reference, portals:p.portals})});
+    renderPortalResults(out);
+    announceOutcome(out.summary, p.action);
+    clearForm();
+    if(can("viewInventory")) refreshInventory();
+  }catch(e){
+    showResult(`<div class="result-line"><span class="fail">✗</span> ${esc(e.message)}</div>`);
+    toast("Submission failed: "+e.message,"err");
+  }
+}
+/* Hides the inline result panel. Called at the start of every submission and
+   whenever the analyst edits the form, so a stale warning can never appear to
+   describe the indicator currently being entered. */
+function clearResult(){
+  $("#resultCard").style.display = "none";
+  $("#resultBody").innerHTML = "";
+}
+function showResult(html,title){
+  if(title)$("#resultTitle").textContent=title;
+  $("#resultCard").style.display="";
+  $("#resultBody").innerHTML=html;
+  // Also surface it front-and-center in a modal — a failure buried below the
+  // fold or in a toast that vanishes after a few seconds is easy to miss.
+  if(title)$("#resultModalTitle").textContent=title;
+  $("#resultModalBody").innerHTML=html;
+  $("#ovResult").classList.add("open");
+}
+function renderPortalResults(out){
+  const rows = (out.results||[]).map(r=>
+    `<div class="result-line"><span class="p">${esc(portalLabel(r.portal))}</span>
+     <span class="${r.ok?"ok":"fail"}">${r.ok?"✓":"✗"}</span><span>${esc(r.detail||(r.ok?"done":"failed"))}</span></div>`).join("");
+  const s = out.summary;
+  const banner = s && s.status!=="all_ok" ? `<div class="result-line" style="margin-bottom:6px">
+     <span class="${s.status==="all_failed"?"fail":"p"}" style="color:${s.status==="all_failed"?"var(--danger)":"var(--warn)"}">
+     ${s.status==="all_failed"?"✗ Failed on every selected platform":
+       s.status==="partial"?`⚠ ${s.ok_count} succeeded, ${s.failed_count} failed`:
+       s.status==="no_platforms"?"⚠ No platforms were dispatched to":""}</span></div>` : "";
+  showResult(banner + rows + (out.stored?'<div class="result-line"><span class="p">Reference store</span><span class="ok">✓</span><span>recorded</span></div>':""));
+}
+
+/* Toast tone reflects the ACTUAL outcome — never a blanket "submitted"
+   when platforms failed or weren't configured. The result panel (above)
+   always has the authoritative per-platform detail; this is just the
+   at-a-glance signal. */
+function announceOutcome(summary, actionLabel){
+  const verb = actionLabel==="delete" ? "Deletion" : "Submission";
+  if(!summary || summary.status==="all_ok"){
+    toast(`${verb} succeeded on all selected platform(s).`,"ok");
+  }else if(summary.status==="partial"){
+    toast(`${verb} partially failed — ${summary.ok_count} succeeded, ${summary.failed_count} failed. See details below.`,"warn");
+  }else if(summary.status==="all_failed"){
+    toast(`${verb} FAILED on every selected platform — nothing was distributed. See details below.`,"err");
+  }else{
+    toast(`${verb} recorded, but no platforms were dispatched to.`,"warn");
+  }
+}
+
+/* ---------------- inventory ---------------- */
+async function refreshInventory(){
+  try{ S.iocs = (await api("/api/iocs")).items || []; }
+  catch(e){ toast("Could not load inventory: "+e.message,"err"); }
+  renderInventory();
+  updateStats();
+  if($("#fAction").value==="delete") renderDeleteList();
+}
+
+function applyDateRangePreset(){
+  const preset = $("#invDateRange").value;
+  const isCustom = preset === "custom";
+  $("#invDateFrom").style.display = isCustom ? "" : "none";
+  $("#invDateTo").style.display = isCustom ? "" : "none";
+
+  if(isCustom) return;
+
+  const iso = d => d.toISOString().slice(0,10);
+  const today = new Date();
+  if(!preset){
+    $("#invDateFrom").value = ""; $("#invDateTo").value = "";
+  }else{
+    const days = {"24h":1, "3d":3, "7d":7}[preset] || 1;
+    const from = new Date(today); from.setDate(from.getDate() - (days - 1));
+    $("#invDateFrom").value = iso(from);
+    $("#invDateTo").value = iso(today);
+  }
+  S.currentPage = 1;
+  renderInventory();
+}
+
+function filteredInventory(){
+  const q=$("#invSearch").value.toLowerCase(), t=$("#invType").value, s=$("#invStatus").value;
+  const from=$("#invDateFrom").value, to=$("#invDateTo").value;
+  return S.iocs.filter(i =>
+      (!q || i.ioc_value.toLowerCase().includes(q) || (i.reference||"").toLowerCase().includes(q) || (i.added_by||"").toLowerCase().includes(q))
+      && (!t || i.ioc_type===t) && (!s || i.status===s)
+      && (!from || i.date>=from) && (!to || i.date<=to));
+}
+function renderInventory(){
+  const all = filteredInventory();
+  const totalPages = Math.max(1, Math.ceil(all.length / S.pageSize));
+  if(S.currentPage > totalPages) S.currentPage = totalPages;
+  const start = (S.currentPage - 1) * S.pageSize;
+  const rows = all.slice(start, start + S.pageSize);
+  const b=$("#invBody");
+  if(!rows.length){ b.innerHTML='<tr><td colspan="7" class="empty">No indicators match.</td></tr>'; }
+  else {
+    b.innerHTML = rows.map(i=>`<tr>
+      <td><span class="typechip">${esc(i.ioc_type)}</span></td>
+      <td class="mono">${esc(i.ioc_value)}</td>
+      <td>${esc(i.added_by)}</td>
+      <td class="mono">${esc(i.date)}</td>
+      <td class="mono">${esc(i.reference)||"—"}</td>
+      <td class="mono" style="font-size:11px">${esc((i.portals||[]).map(portalLabel).join(", "))}</td>
+      <td><span class="status ${esc(i.status)}">${esc(i.status)}</span></td></tr>`).join("");
+  }
+  $("#invPageLabel").textContent = `Page ${S.currentPage} of ${totalPages} (${all.length} total)`;
+  $("#invPrev").disabled = S.currentPage <= 1;
+  $("#invNext").disabled = S.currentPage >= totalPages;
+}
+
+/* ---------------- stats tiles ---------------- */
+function updateStats(){
+  const d = $("#stDate").value || new Date().toISOString().slice(0,10);
+  const day = x => String(x||"").slice(0,10);
+  $("#stAdded").textContent   = S.iocs.filter(i=>day(i.date||i.submitted_at)===d).length;
+  $("#stDeleted").textContent = S.iocs.filter(i=>i.status==="deleted" && day(i.deleted_at)===d).length;
+  $("#stTotal").textContent   = S.iocs.length;
+  $("#stActive").textContent  = S.iocs.filter(i=>i.status==="active").length;
+}
+
+/* ---------------- CSV export ---------------- */
+async function exportInventory(){
+  if(!can("export")) return toast("Your role does not permit exporting.","err");
+  try{
+    const params = new URLSearchParams();
+    if($("#invSearch").value.trim()) params.set("q", $("#invSearch").value.trim());
+    if($("#invType").value) params.set("type", $("#invType").value);
+    if($("#invStatus").value) params.set("status", $("#invStatus").value);
+    if($("#invDateFrom").value) params.set("date_from", $("#invDateFrom").value);
+    if($("#invDateTo").value) params.set("date_to", $("#invDateTo").value);
+    const res = await fetch("/api/iocs/export?"+params.toString());
+    if(!res.ok){ const j = await res.json().catch(()=>({})); throw new Error(j.error||res.statusText); }
+    const blob = await res.blob();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "ioc-inventory-"+new Date().toISOString().slice(0,10)+".csv";
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
+    return toast("Export downloaded.","ok");
+  }catch(e){ return toast("Export failed: "+e.message,"err"); }
+}
+
+/* ---------------- advisories ---------------- */
+async function refreshAdvisories(first){
+  let items=[];
+  try{ items = (await api("/api/advisories")).items || []; }
+  catch(e){ if(first) $("#advList").innerHTML=`<div class="empty">Could not load advisories: ${esc(e.message)}</div>`; return; }
+  const fresh = items.filter(a=>!S.seen.has(a.id));
+  if(!first && fresh.length){
+    toast(`${fresh.length} new advisor${fresh.length>1?"ies":"y"} received.`,"warn");
+    if(S.cfg.desktopNotifications && "Notification" in window && Notification.permission==="granted"){
+      new Notification("New security advisory", {body: fresh[0].subject});
+    }
+  }
+  S.advisories = items;
+  renderAdvisories();
+}
+function renderAdvisories(){
+  const list=$("#advList");
+  if(!S.advisories.length){ list.innerHTML='<div class="empty">No advisories yet. New posts in the SOC channel will appear here.</div>'; return; }
+  list.innerHTML="";
+  let unread=0;
+  for(const a of S.advisories){
+    const isNew = !S.seen.has(a.id); if(isNew) unread++;
+    const d = el("div","adv "+(isNew?"unread":"read"),
+      `<span class="dot"></span><div style="flex:1;min-width:0">
+        <div class="t">${esc(a.subject)}</div>
+        <div class="m">${esc(a.from||"SOC channel")} — ${esc(a.preview||"")}</div>
+        ${a.attachments?.length?`<div class="attach">⎘ ${a.attachments.length} attachment(s)</div>`:""}
+        ${a.action_taken?`<div class="done">✓ Action taken — added to ${esc((a.action_taken.portals||[]).map(portalLabel).join(", "))}</div>`:""}
+      </div><time>${esc((a.posted_at||"").replace("T"," ").slice(0,16))}</time>`);
+    d.addEventListener("click",()=>openAdvisory(a));
+    list.appendChild(d);
+  }
+  const badge=$("#advBadge");
+  badge.textContent=unread; badge.classList.toggle("hidden",!unread);
+}
+function markAllSeen(){
+  S.advisories.forEach(a=>S.seen.add(a.id));
+  localStorage.setItem("advSeen", JSON.stringify([...S.seen].slice(-500)));
+  renderAdvisories();
+}
+
+async function openAdvisory(a){
+  S.currentAdvisory = a; S.extracted = [];
+  $("#advTitle").textContent = a.subject;
+  $("#advMeta").innerHTML = `
+    <dt>Posted</dt><dd>${esc((a.posted_at||"").replace("T"," ").slice(0,16))}</dd>
+    <dt>From</dt><dd>${esc(a.from||"—")}</dd>
+    <dt>Advisory ID</dt><dd>${esc(a.id)}</dd>` + (a.action_taken ? `
+    <dt>Action taken</dt><dd style="color:var(--ok)">added to ${esc((a.action_taken.portals||[]).map(portalLabel).join(", "))} by ${esc(a.action_taken.by||"")} — ${esc(String(a.action_taken.at||"").replace("T"," ").slice(0,16))}</dd>` : "");
+  $("#advBody").innerHTML = a.body_html || esc(a.body_text||"");
+  $("#advBody").querySelectorAll("script,iframe,object").forEach(n=>n.remove());
+  $("#advAttach").innerHTML = a.attachments?.length
+    ? `<label>Attachments</label>`+a.attachments.map(x=>`<div class="result-line"><span class="p">⎘</span><span class="mono">${esc(x.name)}</span></div>`).join("")
+    : "";
+  $("#extractZone").innerHTML = "";
+  $("#btnPush").style.display="none";
+  $("#btnExtract").disabled=false; $("#btnExtract").textContent="Extract IOCs";
+  $("#ovAdvisory").classList.add("open");
+  S.seen.add(a.id); localStorage.setItem("advSeen", JSON.stringify([...S.seen].slice(-500)));
+  renderAdvisories();
+}
+
+async function onExtract(){
+  const a = S.currentAdvisory; if(!a) return;
+  $("#btnExtract").disabled=true; $("#btnExtract").innerHTML='<span class="spin"></span> Extracting…';
+  try{
+    const out = await api(`/api/advisories/${encodeURIComponent(a.id)}/extract`,{method:"POST"});
+    S.extracted = (out.items||[]).map((x,i)=>({...x, _i:i}));
+    renderExtracted();
+    $("#btnPush").style.display = (S.extracted.length && can("add")) ? "" : "none";
+    $("#btnExtract").textContent = "Re-extract";
+    if(!S.extracted.length) toast("No indicators found in this advisory.","warn");
+  }catch(e){ toast("Extraction failed: "+e.message,"err"); $("#btnExtract").textContent="Extract IOCs"; }
+  $("#btnExtract").disabled=false;
+}
+function renderExtracted(){
+  if(!S.extracted.length){ $("#extractZone").innerHTML='<div class="empty">No indicators detected in the message, links or attachments.</div>'; return; }
+  $("#extractZone").innerHTML = `<label>Extracted indicators (${S.extracted.length})</label>
+   <div style="overflow:auto;border:1px solid var(--border-soft);border-radius:6px">
+   <table><thead><tr><th style="width:34px"><input type="checkbox" id="exAll" checked></th><th>Type</th><th>Value</th><th>Source</th></tr></thead>
+   <tbody>${S.extracted.map(x=>`<tr>
+     <td><input type="checkbox" class="exPick" data-i="${x._i}" checked></td>
+     <td><span class="typechip">${esc(x.type)}</span></td>
+     <td class="mono">${esc(x.value)}</td>
+     <td class="mono" style="font-size:11px;color:var(--muted)">${esc(x.source||"body")}</td></tr>`).join("")}
+   </tbody></table></div>`;
+  $("#exAll").addEventListener("change",e=>document.querySelectorAll(".exPick").forEach(c=>c.checked=e.target.checked));
+}
+
+function openPortalPick(){
+  const picked = [...document.querySelectorAll(".exPick:checked")];
+  if(!picked.length) return toast("Select at least one extracted indicator.","warn");
+  renderPortalChecks($("#pushPortalChecks"));
+  $("#pushRef").value = S.currentAdvisory ? ("ADV:"+S.currentAdvisory.id) : "";
+  $("#ovPortalPick").classList.add("open");
+}
+async function onPushConfirm(){
+  const portals = selectedPortals($("#pushPortalChecks"));
+  if(!portals.length) return toast("Choose at least one platform.","warn");
+  if(!$("#pushRef").value.trim()) return toast("Reference is required.","warn");
+  const items = [...document.querySelectorAll(".exPick:checked")].map(c=>S.extracted[+c.dataset.i]).map(x=>({type:x.type, value:x.value}));
+  $("#ovPortalPick").classList.remove("open");
+  toast("Pushing "+items.length+" indicator(s)…");
+  try{
+    const out = await api("/api/push",{method:"POST",body:JSON.stringify({items, portals, reference:$("#pushRef").value.trim(), advisory_id:S.currentAdvisory?.id})});
+    if(S.currentAdvisory){
+      const at = {by:S.user.name, at:new Date().toISOString(), portals, indicators:items.length};
+      S.currentAdvisory.action_taken = at;
+      const li = S.advisories.find(x=>x.id===S.currentAdvisory.id);
+      if(li) li.action_taken = at;
+      renderAdvisories();
+    }
+    $("#ovAdvisory").classList.remove("open");
+    document.querySelector('[data-tab="submit"]').click();
+    renderPortalResults(out); $("#resultTitle").textContent="Advisory push result";
+    announceOutcome(out.summary, "push"); refreshInventory();
+  }catch(e){
+    showResult(`<div class="result-line"><span class="fail">✗</span> ${esc(e.message)}</div>`, "Advisory push result");
+    toast("Push failed: "+e.message,"err");
+  }
+}
+
+/* ---------------- toasts ---------------- */
+function toast(msg, kind=""){
+  const t = el("div","toast "+kind, esc(msg));
+  $("#toasts").appendChild(t);
+  setTimeout(()=>t.remove(), 6000);
+}
+
+</script>
+</body>
+</html>

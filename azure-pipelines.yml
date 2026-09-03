@@ -1,0 +1,237 @@
+# EZ IOCHUB — build once, deploy many.
+#
+# The artifact built in the Build stage is the artifact deployed to Dev and
+# then, unchanged, to Prod. Nothing environment-specific is compiled in: the
+# front end is a single static file and all behaviour comes from App Service
+# settings and the runtime config blob, so one package promotes everywhere.
+#
+# Prod is gated on the Deploy_to_Prod variable. When it isn't 'true' the stage
+# is *skipped*, not failed, so the pipeline stays green on ordinary Dev runs.
+# On top of that, the Prod environment carries a manual approval check, so a
+# human still has to approve even when the flag is set.
+
+trigger:
+  branches:
+    include:
+      - main
+      - develop
+  paths:
+    exclude:
+      - "**/*.md"
+      - docs/**
+
+pr:
+  branches:
+    include:
+      - main
+      - develop
+
+parameters:
+  # Microsoft-hosted agents work until the Function App and Key Vault go
+  # private. After that, switch this to a self-hosted pool inside the VNet —
+  # hosted agents cannot reach private endpoints.
+  - name: agentPool
+    displayName: Agent pool
+    type: string
+    default: hosted
+    values:
+      - hosted
+      - EZ-IOCHub-SelfHosted
+
+variables:
+  # Deploy_to_Prod lives in the pipeline-promotion variable group so it can
+  # be flipped from Library -> Variable groups without a commit. It is NOT
+  # environment-specific config (that stays as template parameters below,
+  # per-stage) — it is purely the release gate, kept separate on purpose so
+  # editing "should this run promote to Prod" never touches resource names.
+  - group: ioc-pipeline-promotion
+
+  - name: pythonVersion
+    value: "3.11"
+  - name: nodeVersion
+    value: "22.x"
+
+stages:
+  # ==================================================================
+  - stage: Build
+    displayName: Build and verify
+    jobs:
+      - job: Backend
+        displayName: Function App
+        pool:
+          ${{ if eq(parameters.agentPool, 'hosted') }}:
+            vmImage: ubuntu-24.04
+          ${{ else }}:
+            name: ${{ parameters.agentPool }}
+        steps:
+          - task: UsePythonVersion@0
+            displayName: Use Python $(pythonVersion)
+            inputs:
+              versionSpec: $(pythonVersion)
+
+          - script: |
+              set -euo pipefail
+              python -m pip install --upgrade pip
+              pip install -r api/requirements.txt
+              pip install pytest pip-audit
+            displayName: Install dependencies
+
+          # These tests target the failure modes this project has actually hit:
+          # indentation damage from manual edits, connectors referencing config
+          # attributes that no longer exist, and route handlers calling storage
+          # methods that were never defined. Each previously reached a live
+          # environment and was found only when a user hit it.
+          - script: |
+              set -euo pipefail
+              export PYTHONPATH="$(Build.SourcesDirectory)/api"
+              pytest tests -q --junitxml=$(Build.ArtifactStagingDirectory)/test-results.xml
+            displayName: Test
+
+          - task: PublishTestResults@2
+            displayName: Publish test results
+            condition: succeededOrFailed()
+            inputs:
+              testResultsFiles: $(Build.ArtifactStagingDirectory)/test-results.xml
+              testRunTitle: Function App
+              failTaskOnFailedTests: true
+
+          # Fails the build on a known advisory. This is a security product; a
+          # vulnerable dependency in it is worse than a late release.
+          - script: pip-audit -r api/requirements.txt
+            displayName: Audit dependencies
+
+          # Vendor dependencies rather than relying on Oryx remote build. The
+          # package is then self-contained, deploys identically everywhere, and
+          # needs no outbound network access at deploy time — which matters once
+          # the Function App is behind a private endpoint.
+          - script: |
+              set -euo pipefail
+              rm -rf api/.python_packages
+              pip install --target="api/.python_packages/lib/site-packages" -r api/requirements.txt
+            displayName: Vendor dependencies
+
+          # function_app.py must sit at the ROOT of the zip or the Functions
+          # host will not discover any routes.
+          - script: |
+              set -euo pipefail
+              test -f api/function_app.py
+              test -f api/host.json
+              test -f api/shared/__init__.py
+              test -d api/shared/connectors
+              test -d api/.python_packages/lib/site-packages/azure
+            displayName: Verify package layout
+
+          - task: ArchiveFiles@2
+            displayName: Package Function App
+            inputs:
+              rootFolderOrFile: api
+              includeRootFolder: false
+              archiveType: zip
+              archiveFile: $(Build.ArtifactStagingDirectory)/functionapp.zip
+              replaceExistingArchive: true
+
+          - publish: $(Build.ArtifactStagingDirectory)/functionapp.zip
+            artifact: functionapp
+            displayName: Publish Function App artifact
+
+      # ----------------------------------------------------------------
+      - job: Frontend
+        displayName: Web app and proxy
+        pool:
+          ${{ if eq(parameters.agentPool, 'hosted') }}:
+            vmImage: ubuntu-24.04
+          ${{ else }}:
+            name: ${{ parameters.agentPool }}
+        steps:
+          - task: NodeTool@0
+            displayName: Use Node $(nodeVersion)
+            inputs:
+              versionSpec: $(nodeVersion)
+
+          # The proxy is deliberately zero-dependency, so there is no npm ci
+          # and no bundler. That means no dependency audit is possible or
+          # needed — but it also means a syntax error would only surface at
+          # runtime, so both files are parsed here instead.
+          - script: |
+              set -euo pipefail
+              node --check frontend-app/server.js
+              echo "server.js parsed OK"
+            displayName: Check proxy syntax
+
+          - script: |
+              set -euo pipefail
+              node -e "
+                const fs = require('fs'), vm = require('vm');
+                const html = fs.readFileSync('frontend-app/public/index.html', 'utf8');
+                const parts = html.split('<script>');
+                if (parts.length < 2) throw new Error('no <script> block in index.html');
+                // Checks EVERY script block, not just the first — the file
+                // may contain more than one <script> tag (e.g. a small
+                // early-run inline script plus the main app script), and a
+                // naive parts[1]-only check would silently stop validating
+                // anything after the first block once that happens.
+                let checked = 0;
+                for (let i = 1; i < parts.length; i++) {
+                  const body = parts[i].split('</script>')[0];
+                  new vm.Script(body);
+                  checked++;
+                }
+                console.log('index.html: ' + checked + ' inline script block(s) parsed OK');
+              "
+            displayName: Check web app syntax
+
+          - script: |
+              set -euo pipefail
+              test -f frontend-app/server.js
+              test -f frontend-app/package.json
+              test -f frontend-app/public/index.html
+              grep -q "/api/config" frontend-app/public/index.html \
+                || { echo "index.html does not fetch /api/config; runtime config would not load"; exit 1; }
+            displayName: Verify package layout
+
+          - task: ArchiveFiles@2
+            displayName: Package web app
+            inputs:
+              rootFolderOrFile: frontend-app
+              includeRootFolder: false
+              archiveType: zip
+              archiveFile: $(Build.ArtifactStagingDirectory)/webapp.zip
+              replaceExistingArchive: true
+
+          - publish: $(Build.ArtifactStagingDirectory)/webapp.zip
+            artifact: webapp
+            displayName: Publish web artifact
+
+  # ==================================================================
+  - stage: DeployDev
+    displayName: Deploy to Dev
+    dependsOn: Build
+    condition: and(succeeded(), ne(variables['Build.Reason'], 'PullRequest'))
+    jobs:
+      - template: templates/deploy.yml
+        parameters:
+          environmentName: ioc-portal-dev
+          agentPool: ${{ parameters.agentPool }}
+          serviceConnection: sp-iochub-fmi
+          resourceGroup: AZ-WEU-IOCHUB-RG
+          functionAppName: az-weu-iochub-dv-fapp
+          webAppName: az-weu-iochub-dv-wapp
+          useTemporaryDeployAccess: true
+
+  # ==================================================================
+  # Skipped, not failed, when Deploy_to_Prod is anything but 'true'.
+  # The Prod environment additionally carries a manual approval check, so
+  # setting the flag queues the deployment for approval rather than running it.
+  - stage: DeployProd
+    displayName: Deploy to Prod
+    dependsOn: DeployDev
+    condition: and(succeeded(), eq(variables['Deploy_to_Prod'], 'true'))
+    jobs:
+      - template: templates/deploy.yml
+        parameters:
+          environmentName: ioc-portal-prod
+          agentPool: ${{ parameters.agentPool }}
+          serviceConnection: sp-iochub-fmi
+          resourceGroup: AZ-WEU-IOCHUB-RG
+          functionAppName: IOCAUTOMATION-PROD-FAPP
+          webAppName: AZ-EUS-IOC-PROD

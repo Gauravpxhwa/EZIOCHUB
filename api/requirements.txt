@@ -1,0 +1,6 @@
+# Pinned stable versions (post known-CVE fixes); bump deliberately, not implicitly.
+azure-functions==1.20.0
+azure-storage-blob==12.19.1
+azure-identity==1.16.1
+azure-core==1.38.0
+requests==2.33.0
